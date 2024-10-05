@@ -1,35 +1,103 @@
+// import {
+//   Approval as ApprovalEvent,
+//   Transfer as TransferEvent
+// } from "../generated/SimpleToken/SimpleToken"
+// import { Approval, Transfer } from "../generated/schema"
+
+// export function handleApproval(event: ApprovalEvent): void {
+//   let entity = new Approval(
+//     event.transaction.hash.concatI32(event.logIndex.toI32())
+//   )
+//   entity.owner = event.params.owner
+//   entity.spender = event.params.spender
+//   entity.value = event.params.value
+
+//   entity.blockNumber = event.block.number
+//   entity.blockTimestamp = event.block.timestamp
+//   entity.transactionHash = event.transaction.hash
+
+//   entity.save()
+// }
+
+// export function handleTransfer(event: TransferEvent): void {
+//   let entity = new Transfer(
+//     event.transaction.hash.concatI32(event.logIndex.toI32())
+//   )
+//   entity.from = event.params.from
+//   entity.to = event.params.to
+//   entity.value = event.params.value
+
+//   entity.blockNumber = event.block.number
+//   entity.blockTimestamp = event.block.timestamp
+//   entity.transactionHash = event.transaction.hash
+
+//   entity.save()
+// }
+
+
+
+
+//import event class from generated files
+import {Transfer} from "../generated/SimpleToken/SimpleToken"
+//import entities
+import {TokenBalance} from "../generated/schema"
+//import the functions defined in utils.ts
 import {
-  Approval as ApprovalEvent,
-  Transfer as TransferEvent
-} from "../generated/SimpleToken/SimpleToken"
-import { Approval, Transfer } from "../generated/schema"
+  fetchTokenDetails,
+  fetchAccount,
+  fetchBalance
+} from "./utils"
+//import datatype
+import { BigDecimal} from "@graphprotocol/graph-ts";
 
-export function handleApproval(event: ApprovalEvent): void {
-  let entity = new Approval(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.owner = event.params.owner
-  entity.spender = event.params.spender
-  entity.value = event.params.value
 
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
 
-  entity.save()
-}
+export function handleTransfer(event: Transfer): void {
+    let token = fetchTokenDetails(event);
+    if (!token) { //if token == null
+        return
+      }
 
-export function handleTransfer(event: TransferEvent): void {
-  let entity = new Transfer(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.from = event.params.from
-  entity.to = event.params.to
-  entity.value = event.params.value
+    //get account addresses from event
+    let fromAddress = event.params.from.toHex();
+    let toAddress = event.params.to.toHex();
 
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
+    //fetch account details
+    let fromAccount = fetchAccount(fromAddress);
+    let toAccount = fetchAccount(toAddress);
 
-  entity.save()
-}
+    if (!fromAccount || !toAccount) {
+    return;
+    }
+
+    //setting the token balance of the 'from' account
+    let fromTokenBalance = TokenBalance.load(token.id + "-" + fromAccount.id);
+    if (!fromTokenBalance) { //if balance is not already saved
+					//create a new TokenBalance instance
+					// while creating the new token balance,
+					// the combination of the token address 
+					// and the account address is  
+					// passed as the identifier value
+          fromTokenBalance = new TokenBalance(token.id + "-" + fromAccount.id);
+          fromTokenBalance.token = token.id;
+          fromTokenBalance.account = fromAccount.id;
+    }
+
+    fromTokenBalance.amount = fetchBalance(event.address,event.params.from)
+		//filtering out zero-balance tokens - optional
+    if(fromTokenBalance.amount != BigDecimal.fromString("0")){
+      fromTokenBalance.save();
+    }
+    
+    //setting the token balance of the 'to' account
+    let toTokenBalance = TokenBalance.load(token.id + "-" + toAccount.id);
+    if (!toTokenBalance) {
+        toTokenBalance = new TokenBalance(token.id + "-" + toAccount.id);
+        toTokenBalance.token = token.id;
+        toTokenBalance.account = toAccount.id;
+      }
+    toTokenBalance.amount = fetchBalance(event.address,event.params.to)
+    if(toTokenBalance.amount != BigDecimal.fromString("0")){
+      toTokenBalance.save();
+    }
+  }
